@@ -1,6 +1,7 @@
 import cv2
 import numpy as np 
 import math
+import networkx as nx
 
 class Point2D:
 	x=None
@@ -80,17 +81,17 @@ class SWT():
 		output[SWTImage>=0]=((SWTImage[SWTImage>=0])-minVal)/float(dif)
 		return output
 
-	def SWTMeadianFilter(self,SWTImage,ray):
-		for r in ray:
+	def SWTMeadianFilter(self,SWTImage,rays):
+		for r in rays:
 			for p in r.points:
 				p.SWT=SWTImage.item(p.y,p.x)
 			r.points.sort(cmp = lambda x, y: cmp(x.SWT, y.SWT))
 			median=(r.points[len(r.points)/2]).SWT
 			for p in r.points:
-				SWTImage.itemset((p.y,p.x),int(min(median,p.SWT)))
+				SWTImage.itemset((p.y,p.x),min(median,p.SWT))
 		return SWTImage
 
-	def __SWT(self,edgeImg,gradientX,gradientY,LIGHT_TO_DARK,optimizeSpeed,prec=1):
+	def __SWT(self,edgeImg,gradientX,gradientY,LIGHT_TO_DARK,medianFilterEnable,optimizeSpeed,prec=1):
 		"""
 			API Usage:
 				__SWT(self,edgeImg,gradientX,gradientY,LIGHT_TO_DARK,optimizeSpeed,[prec=1])
@@ -175,7 +176,8 @@ class SWT():
 									else:
 										SWTImage.itemset((point.y,point.x),length)
 							ray.points=points
-							rays.append(ray)						
+							if medianFilterEnable:
+								rays.append(ray)						
 							break
 						length=self.__getLength(p,intermediat)
 						if not self.__validLength(length,width,heigth,optimizeSpeed):
@@ -183,7 +185,47 @@ class SWT():
 						points.append(intermediat)
 		return (SWTImage,rays)
 
-	def getSWT(self,image,DARK_ON_LIGHT,preprocessed=False,cannyThreshold=0,optimizeSpeed=True):
+	def connected_components(self,SWTImage):
+		width=SWTImage.shape[1]
+		heigth=SWTImage.shape[0]
+		G=nx.Graph()
+		row_loc=np.zeros(SWTImage.shape[0]*SWTImage.shape[1])
+
+		for y in xrange(1,heigth):
+			for x in xrange(1,width):
+				currentPix=SWTImage.item(y,x)
+				if currentPix>0:
+					left=x-1
+					up=y-1
+					rigth=x+1
+
+					leftPix=SWTImage.item(y,left)
+					if(leftPix>0 and (leftPix/currentPix<=3.0 or currentPix/leftPix<=3.0)):
+						G.add_edge(y*width+x,y*width+left)
+						row_loc.itemset((y*width+left),y)
+
+					leftUpPix=SWTImage.item(up,left)
+					if(leftUpPix>0 and (leftUpPix/currentPix<=3.0 or currentPix/leftUpPix<=3.0)):
+						G.add_edge(y*width+x,up*width+left)
+						row_loc.itemset((up*width+left),up)
+
+					upPix=SWTImage.item(up,x)
+					if(upPix>0 and (upPix/currentPix<=3.0 or currentPix/upPix<=3.0)):
+						G.add_edge(y*width+x,up*width+x)
+						row_loc.itemset((up*width+x),up)
+
+					if(rigth<width):
+						rightUpPix=SWTImage.item(up,rigth)
+						if (rightUpPix>0 and (rightUpPix/currentPix<=3.0 or currentPix/rightUpPix<=3.0)):
+							G.add_edge(y*width+x,up*width+rigth)
+							row_loc.itemset(up*width+rigth,up)
+
+					row_loc.itemset((y*width+x),y)
+
+		components=nx.algorithms.components.connected_components(G)
+		return components,row_loc
+
+	def getSWT(self,image,DARK_ON_LIGHT,preprocessed=False,cannyThreshold=0,optimizeSpeed=True,medianFilterEnable=False):
 		"""
 			API Usage:
 			        getSWT(self,image,DARK_ON_LIGHT,[preprocessed=False,cannyThreshold=0,[optimizeSpeed=True]])
@@ -221,4 +263,7 @@ class SWT():
 		
 		gradientX = cv2.Sobel(gaussianImg,cv2.CV_64F, 1, 0)
 		gradientY = cv2.Sobel(gaussianImg,cv2.CV_64F, 0, 1)
-		return self.__SWT(edgeImg,gradientX,gradientY,DARK_ON_LIGHT,optimizeSpeed)
+		SWTImage,rays=self.__SWT(edgeImg,gradientX,gradientY,DARK_ON_LIGHT,medianFilterEnable,optimizeSpeed)
+		if medianFilterEnable:
+			SWTImage=self.SWTMeadianFilter(SWTImage,rays)
+		return SWTImage
