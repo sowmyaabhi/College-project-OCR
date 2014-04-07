@@ -6,14 +6,14 @@ import numpy as np
 
 import random
 
-image=cv2.imread("2.jpg")
+image=cv2.imread("1.jpg")
 
 swt=text.SWT()
 
 start=time.time()
 SWTImage=swt.getSWT(image,False,optimizeSpeed=True,medianFilterEnable=False)
 #out=swt.normalizeFilter(SWTImage)
-
+width=SWTImage.shape[1]
 componentImage=np.zeros((SWTImage.shape[0],SWTImage.shape[1],3))
 components,row_loc=swt.connected_components(SWTImage)
 
